@@ -1,0 +1,81 @@
+---
+Description: Setup an Amazon Linux Web Server
+Parameters: 
+  KeyName: 
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of existing EC2 Keypair to allow SSH access to the instance
+    AllowedPattern: ".+"
+  SSHCIDR:
+    Type: String
+    Description: CIDR block restricting SSH
+    MinLength: 10
+    Default: 67.85.225.119/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+Mappings:
+  Region2AMI:
+    us-east-2:
+      AMI: ami-04fcd96153cb57194
+    us-east-1:
+      AMI: ami-00514a528eadbc95b
+    
+Resources: 
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd: []
+          files:
+            /var/www/html/index.html:
+              content: !
+                <h1>Shruthis CloudFormation Server</h1>
+                <h2>Now with CF Helper Scripts</h2>
+                <p>Get out!</p>
+              mode: '000644'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+    Properties:
+      ImageId: !FindInMap [Region2AMI, !Ref 'AWS::Region', 'AMI']
+      InstanceType: t2.micro
+      SecurityGroups:
+      - !Ref WebserverSecurityGroup
+      Tags:
+      - Key: Name 
+        Value: Amazon Linux Web Server
+      KeyName: !Ref KeyName
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -x
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2Instance --region ${AWS::Region}
+  WebserverSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Allows HTTP
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        FromPort: 80
+        ToPort: 80
+        IpProtocol: tcp
+      - CidrIp: !Ref SSHCIDR
+        FromPort: 22
+        ToPort: 22
+        IpProtocol: tcp
+Outputs:
+  WebURL: 
+    Description: The URL for the webpage
+    Value: !Sub 'http://${EC2Instance.PublicIp}'
+  PublicDNS:
+    Description: Public DNS of the instance
+    Value: !Sub '${EC2Instance.PublicDnsName}'
+  Region:
+    Description: Region of the instance
+    Value: !Sub '${AWS::Region}'
+

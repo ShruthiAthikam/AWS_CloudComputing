@@ -1,0 +1,35 @@
+---
+Description: Setup an Amazon Ubuntu Web Server
+Resources: 
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-06b263d6ceff0b3dd
+      InstanceType: t2.micro
+      SecurityGroups:
+      - !Ref WebserverSecurityGroup
+      Tags:
+      - Key: Name 
+        Value: Amazon Ubuntu Web Server
+      UserData:
+        'Fn::Base64': |
+          #!/bin/bash
+          set -x
+          #skip prompts
+          export DEBIAN_FRONTEND = noninteractive
+          #set timezone
+          timedatactl set-timezone America/New_York
+          #install and setup apache
+          apt-get update
+          apt-get install -y apache2
+          cd /var/www/html
+          echo "<h1>Shruthi's Amazon Ubuntu Cloud Formation Server</h1>" > index.html            
+  WebserverSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Allows HTTP
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        FromPort: 80
+        ToPort: 80
+        IpProtocol: tcp

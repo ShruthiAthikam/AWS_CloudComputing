@@ -1,0 +1,162 @@
+---
+Description: Setup an Amazon Linux Web Server
+
+Parameters:
+
+# Parameter for entering KeyPair name while stack creation
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of existing EC2 Keypair to allow SSH access to the instance
+    
+# Parameter for entering the CIDR block which is allowed for SSH 
+  SSHCIDR:
+    Type: String
+    Description: CIDR block restricting SSH
+    MinLength: 9
+    Default: 131.247.0.0/16
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x
+ 
+# Maps AMI's to corresponding Regions
+Mappings:
+  Region2AMI:
+    us-east-1:
+      AMI: ami-032930428bf1abbff
+    us-east-2:
+      AMI: ami-027cab9a7bf0155df
+    us-west-1:
+      AMI: ami-088c153f74339f34c
+    us-west-2:
+      AMI: ami-01fee56b22f308154
+    ap-south-1:
+      AMI: ami-03cfb5e1fb4fac428
+    ap-northeast-2:
+      AMI: ami-0493ab99920f410fc
+    ap-southeast-1:
+      AMI: ami-0ba35dc9caf73d1c7
+    ap-southeast-2:
+      AMI: ami-0ae99b503e8694028
+    ap-northeast-1:
+      AMI: ami-0b2c2a754d5b4da22
+    ca-central-1:
+      AMI: ami-0803e21a2ec22f953
+    eu-central-1:
+      AMI: ami-0474863011a7d1541
+    eu-west-1:
+      AMI: ami-015232c01a82b847b
+    eu-west-2:
+      AMI: ami-0765d48d7e15beb93
+    eu-west-3:
+      AMI: ami-0caf07637eda19d9c
+    eu-north-1:
+      AMI: ami-0de4b8910494dba0f
+    sa-east-1:
+      AMI: ami-0a52e8a6018e92bb0
+      
+Resources: 
+ # includes all specifications of an EC2 Instance.
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          InstallAndConfig:
+            - Install
+            - Configure
+            
+        # Install deals with installing nginx webserver, writing into index.html , configuring the cfn-hup daemon files and their content for update stack functionality and explicitly starting nginx and cfn-hup services    
+        Install:
+          packages:
+            yum:
+              nginx: [] 
+          files:
+            /var/www/html/index.html:
+              content: !Sub | 
+                <h1>Shruthi Priya Athikam</h1>
+                <Title>Shruthi Priya Athikam</Title>
+                <h1>Region : ${AWS::Region}</h1>
+              mode: '000644'
+              owner: root
+              group: root
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                interval=1
+              mode: '000400'
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.EC2Instance.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2Instance --region ${AWS::Region} --configsets InstallAndConfig
+                runas=root
+              mode: '000400'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              nginx:
+                enabled: 'true'
+                ensureRunning: 'true'
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+                  
+        # includes commands to write the PublicDNSName into index.html , changing the root directive from /usr/share/nginx/html to /var/www/html in /etc/nginx/nginx.conf file and restarting nginx service.      
+        Configure:
+          commands:
+            GetPublicDNS:
+              command: |
+                echo "<h1>Public DNS : " $(curl http://169.254.169.254/latest/meta-data/public-hostname)"     </h1>" >> /var/www/html/index.html
+            NginxConfiguration:
+              command: 
+                perl -077pi -e 's@/usr/share/nginx/html@/var/www/html@s' /etc/nginx/nginx.conf
+            NginxRestart:
+              command: 
+                service nginx restart
+                
+    # includes ImageID , InstanceType , Securitygroups , Tags, Keyname and Userdata script.
+    Properties:
+      ImageId: !FindInMap [Region2AMI, !Ref 'AWS::Region', 'AMI']
+      InstanceType: t2.micro
+      SecurityGroups:
+      - !Ref WebserverSecurityGroup
+      Tags:
+      - Key: Name 
+        Value: Amazon Linux Web Server
+      KeyName: !Ref KeyName
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -x
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2Instance --region ${AWS::Region} --configsets InstallAndConfig
+          
+  # gives the security group rules for port 80 and 22        
+  WebserverSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Allows HTTP from everywhere and CIDR block through SSH
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        FromPort: 80
+        ToPort: 80
+        IpProtocol: tcp
+      - CidrIp: !Ref SSHCIDR
+        FromPort: 22
+        ToPort: 22
+        IpProtocol: tcp
+        
+# gives the outputs of a stack.       
+Outputs:
+  WebURL: 
+    Description: The URL for the webpage
+    Value: !Sub 'http://${EC2Instance.PublicIp}'
+  
+

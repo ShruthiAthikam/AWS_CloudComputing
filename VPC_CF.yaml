@@ -1,0 +1,323 @@
+Description: Setup a VPC and create an instance in private and public subnets.
+
+Parameters: 
+# Parameter for entering KeyPair name while stack creation
+  KeyName: 
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of existing EC2 Keypair to allow SSH access to the NAT Instace
+    AllowedPattern: ".+"
+    
+# Parameter for entering the CIDR block which is allowed for SSH into the public subnet NAT Instance
+  SSHCIDR:
+    Type: String
+    Description: CIDR block allowing SSH into NAT
+    MinLength: 9
+    Default: 131.247.0.0/16
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x
+    
+# Parameter for entering the CIDR block for the VPC
+  VPCCIDR:
+    Type: String
+    Description: CIDR block for VPC
+    MinLength: 9
+    Default: 172.16.8.0/22
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x
+    
+# Parameter for entering the CIDR block for the Public subnet
+  PublicSubnetCIDR:
+    Type: String
+    Description: CIDR block for the public subnet
+    MinLength: 9
+    Default: 172.16.8.0/26
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x
+    
+# Parameter for entering the CIDR block for the Private subnet
+  PrivateSubnetCIDR:
+    Type: String
+    Description: CIDR block for the private subnet
+    MinLength: 9
+    Default: 172.16.10.0/23
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x
+    
+# Parameter for entering the name to be used to prefix to all the created VPC, instances, subnets, routetables etc.
+  Name:
+    Type: String
+    Description: Name to be prefixed to all the created VPC, instances, subnets, routetables etc.
+    Default: VPC
+ 
+# Maps AMI's to corresponding Regions
+Mappings: 
+  Region2NATAmi:
+    us-east-1:
+      AMI: ami-00a9d4a05375b2763
+    us-east-2:
+      AMI: ami-00d1f8201864cc10c
+    us-west-1:
+      AMI: ami-097ad469381034fa2
+    us-west-2:
+      AMI: ami-0b840e8a1ce4cdf15
+    ap-south-1:
+      AMI: ami-00b3aa8a93dd09c13
+    ap-northeast-2:
+      AMI: ami-0d98591cbf9ef1ffd
+    ap-southeast-1:
+      AMI: ami-01514bb1776d5c018
+    ap-southeast-2:
+      AMI: ami-062c04ec46aecd204
+    ap-northeast-1:
+      AMI: ami-00d29e4cb217ae06b
+    ca-central-1:
+      AMI: ami-0b32354309da5bba5
+    eu-central-1:
+      AMI: ami-06a5303d47fbd8c60
+    eu-west-1:
+      AMI: ami-024107e3e3217a248
+    eu-west-2:
+      AMI: ami-0ca65a55561666293
+    eu-west-3:
+      AMI: ami-0641e4dfc1427f114
+    sa-east-1:
+      AMI: ami-057f5d52ff7ae75ae
+      
+      #Note: a) AMI ID’s for the NAT Linux instance were found by spinning up a VPC (using NAT Instance) using the AWS console for each region. They all seemed working fine when trying to set up VPC with this script. b) For the region eu-north-1 the instance type t2.micro isn't available , hence wasn't included.
+      
+  RegionToUbuntuAmi:
+    us-east-1:
+      AMI: ami-00ddb0e5626798373
+    us-east-2:
+      AMI: ami-0dd9f0e7df0f0a138
+    us-west-1:
+      AMI: ami-0a741b782c2c8632d
+    us-west-2:
+      AMI: ami-0ac73f33a1888c64a
+    ap-south-1:
+      AMI: ami-0db0b3ab7df22e366
+    ap-northeast-2:
+      AMI: ami-0e67aff698cb24c1d
+    ap-southeast-1:
+      AMI: ami-06fb5332e8e3e577a
+    ap-southeast-2:
+      AMI: ami-0987943c813a8426b
+    ap-northeast-1:
+      AMI: ami-023a7615a07affbe5
+    ca-central-1:
+      AMI: ami-0e625dfca3e5a33bd
+    eu-central-1:
+      AMI: ami-0e1ce3e0deb8896d2
+    eu-west-1:
+      AMI: ami-0dc8d444ee2a42d8a
+    eu-west-2:
+      AMI: ami-0e169fa5b2b2f88ae
+    eu-west-3:
+      AMI: ami-089d839e690b09b28
+    sa-east-1:
+      AMI: ami-0f2c5d4cfd5301fac
+  
+Resources:
+
+#Setting up a vpc with a CIDR value of VPCCIDR 
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-VPC
+   
+#Setting up an InternetGateway
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-InternetGateway
+   
+#Attaching the Internet Gateway to the VPC
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC
+  
+#Setting up a public subnet in the VPC with a CIDR value of PublicSubnetCIDR 
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref PublicSubnetCIDR 
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-PublicSubnet
+ 
+ #Setting up a private subnet in the VPC with a CIDR value of PrivateSubnetCIDR
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref PrivateSubnetCIDR
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-PrivateSubnet
+          
+  #Setting up a route table for the public subnet
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-PublicRoutes
+
+  #Attaching the public route table to the public subnet
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+      
+  #Setting up a route for internet for the Public route table
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+  
+  #Setting up a route table for the private subnet
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-PrivateRoutes
+  
+  #Attaching the private route table to the private subnet
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet
+      
+  #Setting up a route for internet for the private route table
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - PrivateRouteTable
+      - Nat
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref Nat
+          
+  #Setting up NAT instance in the public subnet
+  Nat:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !FindInMap [Region2NATAmi, !Ref 'AWS::Region', 'AMI']    
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-NATinstance
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref NatSecGrp
+          AssociatePublicIpAddress: true
+          DeviceIndex: 0
+   
+  #Setting up the security group rules for the NAT instance in the public subnet
+  NatSecGrp:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Access to the nat instnace
+      SecurityGroupIngress:
+      #allow ssh access to the NAT instance
+        - CidrIp: !Ref SSHCIDR
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+      #allow all traffic for the private subnet to access internet through the NAT instance
+        - CidrIp: !Ref PrivateSubnetCIDR
+          IpProtocol: -1         
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-NATSecurityGroup
+          
+  #Setting up an ubuntu instance in the private subnet
+  PrivateEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !FindInMap [RegionToUbuntuAmi, !Ref 'AWS::Region', 'AMI']
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-PrivateEC2instance
+      KeyName: !Ref KeyName
+      UserData:
+        'Fn::Base64': |
+          #!/bin/bash
+          #
+          # basic ubuntu15
+          #
+          set -e
+          set -x
+          # Skip prompts
+          export DEBIAN_FRONTEND=noninteractive
+          # Set timezone
+          sudo timedatectl set-timezone America/New_York
+          # fix color of directory, which in PuTTy ends up as dark blue on 
+          # black background
+          bashrc_append=$(cat <<'EOT'
+          d=.dircolors
+          test -r $d && eval "$(dircolors $d)"
+          EOT
+          )
+          echo "$bashrc_append" >> /home/ubuntu/.bashrc
+          dircolors -p > /home/ubuntu/.dircolors
+          sed -i -e 's/DIR 01;.*/DIR 01;36 # directory/' /home/ubuntu/.dircolors
+          sudo chown ubuntu:ubuntu /home/ubuntu/.dircolors
+          # Upgrade
+          sudo apt-get update
+      SecurityGroupIds:
+        - !Ref PrivateEC2SecGrp
+      SubnetId: !Ref PrivateSubnet
+  
+  #Setting up the security group rules for the EC2 instance in the private subnet
+  PrivateEC2SecGrp:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow ssh access to private subnet from public subnet
+      SecurityGroupIngress:
+      #ssh access from public subnet
+        - CidrIp : !Ref PublicSubnetCIDR
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-PrivateEC2SecurityGroup
+      
+# Gives the outputs of a stack.       
+Outputs:
+  PublicServerIP: 
+    Description: Gives the public IP address of the NAT instance created.
+    Value: !GetAtt Nat.PublicIp
+  PrivateServerIP: 
+    Description: Gives the private IP address of the Private EC2 instance created.
+    Value: !GetAtt PrivateEC2.PrivateIp

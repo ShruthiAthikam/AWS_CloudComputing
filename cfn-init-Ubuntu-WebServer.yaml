@@ -1,0 +1,73 @@
+---
+Description: Setup an Amazon Ubuntu Web Server
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of existing key pair name to allow SSH access to the instance
+    AllowedPattern: ".+"
+  SSHCIDR:
+    Type: String
+    Description: CIDR block restricting SSH
+    MinLength: 10
+    Default: 67.85.225.119/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+Mappings:
+  Region2AMI:
+    us-east-2:
+      AMI: ami-0e82959d4ed12de3f
+    us-east-1:
+      AMI: ami-0817d428a6fb68645
+Resources: 
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:  
+          packages:
+            apt:
+              apache2: []
+          files:
+            /var/www/html/index.html:
+              content: |
+                  <h1>Shruthis CloudFormation Server</h1>
+                  <h2>Now with CF Helper Scripts</h2>
+                  <p>Get out!</p>
+              mode: '000644'
+              owner: root
+              group: root
+    Properties:
+      ImageId: !FindInMap [Region2AMI, !Ref 'AWS::Region', 'AMI']
+      InstanceType: t2.micro
+      SecurityGroups:
+      - !Ref WebserverSecurityGroup
+      Tags:
+      - Key: Name 
+        Value: Amazon Ubuntu Web Server
+      KeyName: !Ref KeyName
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -x
+          apt-get update
+          apt-get -y install python-setuptools 
+          python /usr/lib/python2.7/dist-packages/easy_install.py https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+           # Set timezone
+          sudo timedatectl set-timezone America/New_York
+          /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource EC2Instance --region ${AWS::Region}
+                     
+  WebserverSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Allows HTTP
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        FromPort: 80
+        ToPort: 80
+        IpProtocol: tcp
+      - CidrIp: !Ref SSHCIDR
+        FromPort: 22
+        ToPort: 22
+        IpProtocol: tcp
+Outputs:
+  WebURL:
+    Description: The URL for the webpage
+    Value: !Sub 'http://${EC2Instance.PublicIp}'
